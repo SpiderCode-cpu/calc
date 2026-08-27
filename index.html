@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>حاسبة عبدالله</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <main id="appScreen" class="app-shell">
+    <section class="card calculator-card" id="captureArea">
+
+      <div class="topbar">
+        <div>
+          <h1>حاسبة عبدالله</h1>
+          <p class="subtitle">
+          </p>
+        </div>
+
+        <div class="account-box">
+          <span id="telegramStatus"></span>
+        </div>
+      </div>
+
+      <div class="display-wrap">
+        <div id="expression" class="expression">0</div>
+        <div id="result" class="result">0</div>
+      </div>
+
+      <div class="keys" aria-label="آلة حاسبة">
+
+        <button data-action="clear" class="key danger">C</button>
+        <button data-action="backspace" class="key">⌫</button>
+        <button data-value="%" class="key">%</button>
+        <button data-value="/" class="key operator">÷</button>
+
+        <button data-value="7" class="key">7</button>
+        <button data-value="8" class="key">8</button>
+        <button data-value="9" class="key">9</button>
+        <button data-value="*" class="key operator">×</button>
+
+        <button data-value="4" class="key">4</button>
+        <button data-value="5" class="key">5</button>
+        <button data-value="6" class="key">6</button>
+        <button data-value="-" class="key operator">−</button>
+
+        <button data-value="1" class="key">1</button>
+        <button data-value="2" class="key">2</button>
+        <button data-value="3" class="key">3</button>
+        <button data-value="+" class="key operator">+</button>
+
+        <button data-value="0" class="key zero">0</button>
+        <button data-value="." class="key">.</button>
+        <button data-action="equals" class="key equals">=</button>
+
+      </div>
+
+      <div class="history-head">
+        <h2>سجل العمليات</h2>
+        <button id="clearHistory" class="small-btn ghost">
+          مسح السجل
+        </button>
+      </div>
+
+      <div id="history" class="history"></div>
+
+    </section>
+
+    <p class="note">
+      عند الضغط على = يتم أخذ Screenshot وإرساله مباشرة إلى Telegram.
+      لا يتم فتح Gmail أو Telegram.
+    </p>
+
+  </main>
+
+  <!-- Screenshot -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <!-- إعدادات Telegram -->
+  <script src="config.js"></script>
+
+  <!-- كود الحاسبة -->
+  <script src="script.js"></script>
+
+</body>
+</html>
